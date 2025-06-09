@@ -29,3 +29,5 @@ resources/psnr/test_sequences/
 .classpath
 .project
 .settings
+
+jitsi-load-test/

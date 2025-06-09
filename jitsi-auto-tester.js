@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const { spawn, exec } = require('child_process');
-const fs = require('fs').promises;
-const path = require('path');
-const util = require('util');
+const { spawn, exec } = require("child_process");
+const fs = require("fs").promises;
+const path = require("path");
+const util = require("util");
 const execAsync = util.promisify(exec);
 
 class JitsiLoadTestOrchestrator {
@@ -12,52 +12,55 @@ class JitsiLoadTestOrchestrator {
       // Digital Ocean settings
       doToken: process.env.DO_TOKEN,
       sshKeyId: process.env.DO_SSH_KEY_ID,
-      region: 'nyc1',
-      
+      region: "nyc1",
+
       // Test settings
       jitsiUrl: config.jitsiUrl,
       maxParticipants: config.maxParticipants || 1000,
       incrementStep: config.incrementStep || 50,
       participantsPerNode: config.participantsPerNode || 80, // Conservative estimate
-      
+
       // Infrastructure
-      hubSize: 's-2vcpu-4gb',
-      nodeSize: 's-4vcpu-8gb',
-      
-      ...config
+      hubSize: "s-2vcpu-4gb",
+      nodeSize: "s-4vcpu-8gb",
+
+      autoCleanup: process.env.AUTO_CLEANUP !== "false",
+      testsToRun:
+        process.env.TESTS_TO_RUN || "PeerConnectionStatusTest,PSNRTest,UDPTest",
+
+      ...config,
     };
-    
+
     this.nodes = [];
     this.hubIp = null;
     this.testResults = [];
   }
 
   async runCompleteTest() {
-    console.log('🚀 Starting complete Jitsi load test automation...\n');
-    
+    console.log("🚀 Starting complete Jitsi load test automation...\n");
+
     try {
       // Step 1: Calculate required infrastructure
       await this.calculateInfrastructure();
-      
+
       // Step 2: Provision infrastructure
       await this.provisionInfrastructure();
-      
+
       // Step 3: Setup and configure
       await this.setupInfrastructure();
-      
+
       // Step 4: Run incremental load tests
       await this.runIncrementalTests();
-      
+
       // Step 5: Generate comprehensive report
       await this.generateFinalReport();
-      
+
       // Step 6: Cleanup (optional)
       if (this.config.autoCleanup) {
         await this.cleanup();
       }
-      
     } catch (error) {
-      console.error('❌ Test failed:', error.message);
+      console.error("❌ Test failed:", error.message);
       if (this.config.autoCleanup) {
         await this.cleanup();
       }
@@ -66,42 +69,51 @@ class JitsiLoadTestOrchestrator {
   }
 
   async calculateInfrastructure() {
-    const nodesNeeded = Math.ceil(this.config.maxParticipants / this.config.participantsPerNode);
+    const nodesNeeded = Math.ceil(
+      this.config.maxParticipants / this.config.participantsPerNode
+    );
     console.log(`📊 Infrastructure Planning:`);
     console.log(`   Max participants: ${this.config.maxParticipants}`);
     console.log(`   Participants per node: ${this.config.participantsPerNode}`);
     console.log(`   Nodes required: ${nodesNeeded}`);
-    console.log(`   Estimated cost: $${((nodesNeeded + 1) * 0.06).toFixed(2)}/hour\n`);
-    
+    console.log(
+      `   Estimated cost: $${((nodesNeeded + 1) * 0.071).toFixed(2)}/hour\n`
+    );
+
     this.requiredNodes = nodesNeeded;
   }
 
   async provisionInfrastructure() {
-    console.log('☁️  Provisioning Digital Ocean infrastructure...');
-    
+    console.log("☁️  Provisioning Digital Ocean infrastructure...");
+
     // Create hub droplet
-    console.log('   Creating Selenium Hub...');
-    const hubData = await this.createDroplet('jitsi-hub', this.config.hubSize);
-    this.hubIp = hubData.networks.v4.find(n => n.type === 'public').ip_address;
-    
+    console.log("   Creating Selenium Hub...");
+    const hubData = await this.createDroplet("jitsi-hub", this.config.hubSize);
+    this.hubIp = hubData.networks.v4.find(
+      (n) => n.type === "public"
+    ).ip_address;
+
     // Create initial nodes (we'll add more dynamically if needed)
     const initialNodes = Math.min(3, this.requiredNodes); // Start with 3 nodes
     console.log(`   Creating ${initialNodes} initial worker nodes...`);
-    
+
     for (let i = 1; i <= initialNodes; i++) {
-      const nodeData = await this.createDroplet(`jitsi-node-${i}`, this.config.nodeSize);
+      const nodeData = await this.createDroplet(
+        `jitsi-node-${i}`,
+        this.config.nodeSize
+      );
       this.nodes.push({
         id: nodeData.id,
         name: `jitsi-node-${i}`,
-        ip: nodeData.networks.v4.find(n => n.type === 'public').ip_address,
-        maxParticipants: this.config.participantsPerNode
+        ip: nodeData.networks.v4.find((n) => n.type === "public").ip_address,
+        maxParticipants: this.config.participantsPerNode,
       });
     }
-    
+
     console.log(`✅ Infrastructure provisioned. Hub IP: ${this.hubIp}\n`);
-    
+
     // Wait for droplets to be ready
-    console.log('⏳ Waiting for droplets to initialize...');
+    console.log("⏳ Waiting for droplets to initialize...");
     await this.sleep(60000); // Wait 1 minute
   }
 
@@ -114,35 +126,35 @@ class JitsiLoadTestOrchestrator {
       --wait \\
       --format ID,Name,PublicIPv4,Status \\
       --no-header`;
-    
+
     const { stdout } = await execAsync(createCommand);
     const [id, , ip, status] = stdout.trim().split(/\s+/);
-    
+
     return {
       id: parseInt(id),
       name,
-      networks: { v4: [{ type: 'public', ip_address: ip }] }
+      networks: { v4: [{ type: "public", ip_address: ip }] },
     };
   }
 
   async setupInfrastructure() {
-    console.log('⚙️  Setting up infrastructure...');
-    
+    console.log("⚙️  Setting up infrastructure...");
+
     // Setup hub
-    console.log('   Configuring Selenium Hub...');
+    console.log("   Configuring Selenium Hub...");
     await this.setupHub();
-    
+
     // Setup nodes
-    console.log('   Configuring worker nodes...');
+    console.log("   Configuring worker nodes...");
     for (const node of this.nodes) {
       await this.setupNode(node);
     }
-    
+
     // Setup jitsi-meet-torture
-    console.log('   Setting up jitsi-meet-torture...');
+    console.log("   Setting up jitsi-meet-torture...");
     await this.setupTorture();
-    
-    console.log('✅ Infrastructure setup complete\n');
+
+    console.log("✅ Infrastructure setup complete\n");
   }
 
   async setupHub() {
@@ -257,62 +269,72 @@ echo "Torture setup complete"
   }
 
   async runIncrementalTests() {
-    console.log('🧪 Starting incremental load tests...\n');
-    
+    console.log("🧪 Starting incremental load tests...\n");
+
     let currentNodes = this.nodes.length;
-    
-    for (let participants = this.config.incrementStep; 
-         participants <= this.config.maxParticipants; 
-         participants += this.config.incrementStep) {
-      
+
+    for (
+      let participants = this.config.incrementStep;
+      participants <= this.config.maxParticipants;
+      participants += this.config.incrementStep
+    ) {
       // Check if we need more nodes
-      const requiredNodes = Math.ceil(participants / this.config.participantsPerNode);
+      const requiredNodes = Math.ceil(
+        participants / this.config.participantsPerNode
+      );
       if (requiredNodes > currentNodes) {
-        console.log(`📈 Scaling up: Adding ${requiredNodes - currentNodes} more nodes...`);
+        console.log(
+          `📈 Scaling up: Adding ${requiredNodes - currentNodes} more nodes...`
+        );
         await this.addNodes(requiredNodes - currentNodes);
         currentNodes = requiredNodes;
       }
-      
+
       console.log(`\n🔬 Testing with ${participants} participants...`);
       const result = await this.runSingleTest(participants);
       this.testResults.push(result);
-      
+
       this.logTestResult(result);
-      
+
       // Stop if we hit breaking point
       if (!result.success) {
-        console.log(`💥 Breaking point reached at ${participants} participants`);
+        console.log(
+          `💥 Breaking point reached at ${participants} participants`
+        );
         break;
       }
-      
+
       // Brief pause between tests
-      console.log('⏳ Cooling down for 30 seconds...');
+      console.log("⏳ Cooling down for 30 seconds...");
       await this.sleep(30000);
     }
   }
 
   async addNodes(count) {
     const startIndex = this.nodes.length + 1;
-    
+
     for (let i = 0; i < count; i++) {
       const nodeIndex = startIndex + i;
       console.log(`   Adding node ${nodeIndex}...`);
-      
-      const nodeData = await this.createDroplet(`jitsi-node-${nodeIndex}`, this.config.nodeSize);
+
+      const nodeData = await this.createDroplet(
+        `jitsi-node-${nodeIndex}`,
+        this.config.nodeSize
+      );
       const newNode = {
         id: nodeData.id,
         name: `jitsi-node-${nodeIndex}`,
-        ip: nodeData.networks.v4.find(n => n.type === 'public').ip_address,
-        maxParticipants: this.config.participantsPerNode
+        ip: nodeData.networks.v4.find((n) => n.type === "public").ip_address,
+        maxParticipants: this.config.participantsPerNode,
       };
-      
+
       this.nodes.push(newNode);
-      
+
       // Wait for droplet to be ready and then configure it
       await this.sleep(45000); // Wait 45 seconds
       await this.setupNode(newNode);
     }
-    
+
     console.log(`✅ Added ${count} nodes. Total nodes: ${this.nodes.length}`);
   }
 
@@ -324,7 +346,7 @@ echo "Torture setup complete"
       errors: [],
       duration: 0,
       timestamp: new Date(),
-      metrics: {}
+      metrics: {},
     };
 
     try {
@@ -335,15 +357,16 @@ echo "Torture setup complete"
       }
 
       const testCommand = [
-        'mvn', 'test',
+        "mvn",
+        "test",
         `-Djitsi-meet.instance.url=${this.config.jitsiUrl}`,
-        `-Djitsi-meet.tests.toRun=MuteTest,UDPTest`,
+        `-Djitsi-meet.tests.toRun=${this.config.testsToRun}`,
         `-Denable.headless=true`,
         `-Dremote.address=http://${this.hubIp}:4444/wd/hub`,
         `-Dremote.resource.path=/usr/share/jitsi-meet-torture`,
         `-Dtest.timeout=300`, // 5 minutes
-        ...remoteFlags
-      ].join(' ');
+        ...remoteFlags,
+      ].join(" ");
 
       const testScript = `#!/bin/bash
 cd /opt/jitsi-meet-torture
@@ -352,16 +375,16 @@ echo "EXIT_CODE: $?"
 `;
 
       const output = await this.executeRemoteScript(this.hubIp, testScript);
-      
+
       // Parse results from jitsi-meet-torture output
-      result.success = output.includes('BUILD SUCCESS') || !output.includes('FAILURES');
+      result.success =
+        output.includes("BUILD SUCCESS") || !output.includes("FAILURES");
       result.metrics = this.parseTestMetrics(output);
-      
-      if (!result.success) {        
+
+      if (!result.success) {
         const errors = output.match(/ERROR.*|FAILED.*/g) || [];
         result.errors = errors.slice(0, 5); // Limit error count
       }
-
     } catch (error) {
       result.errors.push(error.message);
       result.success = false;
@@ -373,147 +396,164 @@ echo "EXIT_CODE: $?"
 
   parseTestMetrics(output) {
     const metrics = {};
-    
+
     // Extract participant join success rate
     const joinMatches = output.match(/(\d+)\s+participants?\s+joined/gi);
     if (joinMatches) {
-      metrics.participantsJoined = parseInt(joinMatches[joinMatches.length - 1].match(/\d+/)[0]);
+      metrics.participantsJoined = parseInt(
+        joinMatches[joinMatches.length - 1].match(/\d+/)[0]
+      );
     }
-    
+
     // Extract test duration
     const durationMatch = output.match(/Total time:\s+(\d+:\d+)/);
     if (durationMatch) {
       metrics.testDuration = durationMatch[1];
     }
-    
+
     // Extract failure reasons
     const failureReasons = output.match(/(?:ERROR|FAILED):[^\n]*/g) || [];
     metrics.failureReasons = failureReasons.slice(0, 3);
-    
+
     return metrics;
   }
 
   logTestResult(result) {
-    const status = result.success ? '✅ PASS' : '❌ FAIL';
+    const status = result.success ? "✅ PASS" : "❌ FAIL";
     const duration = (result.duration / 1000).toFixed(1);
     const joined = result.metrics.participantsJoined || 0;
-    
-    console.log(`   ${status} | ${result.participants} requested, ${joined} joined | ${duration}s | ${result.errors.length} errors`);
-    
+
+    console.log(
+      `   ${status} | ${result.participants} requested, ${joined} joined | ${duration}s | ${result.errors.length} errors`
+    );
+
     if (result.errors.length > 0) {
-      console.log(`   └─ Errors: ${result.errors.slice(0, 2).join(', ')}`);
+      console.log(`   └─ Errors: ${result.errors.slice(0, 2).join(", ")}`);
     }
   }
 
   async generateFinalReport() {
-    const maxSuccess = Math.max(...this.testResults.filter(r => r.success).map(r => r.participants), 0);
-    const breakingPoint = this.testResults.find(r => !r.success)?.participants || null;
+    const maxSuccess = Math.max(
+      ...this.testResults.filter((r) => r.success).map((r) => r.participants),
+      0
+    );
+    const breakingPoint =
+      this.testResults.find((r) => !r.success)?.participants || null;
     const totalCost = this.calculateCost();
-    
+
     const report = {
       testConfig: {
         jitsiUrl: this.config.jitsiUrl,
         maxParticipants: this.config.maxParticipants,
         incrementStep: this.config.incrementStep,
-        nodesUsed: this.nodes.length
+        nodesUsed: this.nodes.length,
       },
       summary: {
         maxSuccessfulParticipants: maxSuccess,
         breakingPoint,
         totalTests: this.testResults.length,
-        successRate: (this.testResults.filter(r => r.success).length / this.testResults.length * 100).toFixed(1),
+        successRate: (
+          (this.testResults.filter((r) => r.success).length /
+            this.testResults.length) *
+          100
+        ).toFixed(1),
         estimatedCost: totalCost,
-        recommendedCapacity: Math.floor(maxSuccess * 0.8) // 80% of max for safety margin
+        recommendedCapacity: Math.floor(maxSuccess * 0.8), // 80% of max for safety margin
       },
       detailedResults: this.testResults,
       infrastructure: {
         hub: { ip: this.hubIp },
-        nodes: this.nodes
-      }
+        nodes: this.nodes,
+      },
     };
 
     const reportPath = `jitsi-load-test-report-${Date.now()}.json`;
     await fs.writeFile(reportPath, JSON.stringify(report, null, 2));
-    
+
     // Console summary
-    console.log('\n' + '='.repeat(60));
-    console.log('🎯 JITSI LOAD TEST COMPLETE');
-    console.log('='.repeat(60));
+    console.log("\n" + "=".repeat(60));
+    console.log("🎯 JITSI LOAD TEST COMPLETE");
+    console.log("=".repeat(60));
     console.log(`📊 Maximum successful participants: ${maxSuccess}`);
-    console.log(`💥 Breaking point: ${breakingPoint || 'Not reached'}`);
-    console.log(`🎚️  Recommended capacity: ${report.summary.recommendedCapacity}`);
+    console.log(`💥 Breaking point: ${breakingPoint || "Not reached"}`);
+    console.log(
+      `🎚️  Recommended capacity: ${report.summary.recommendedCapacity}`
+    );
     console.log(`💰 Estimated cost: $${totalCost.toFixed(2)}`);
     console.log(`📄 Full report: ${reportPath}`);
-    console.log('='.repeat(60));
-    
+    console.log("=".repeat(60));
+
     return report;
   }
 
   calculateCost() {
-    const testDurationHours = this.testResults.reduce((sum, r) => sum + r.duration, 0) / (1000 * 60 * 60);
+    const testDurationHours =
+      this.testResults.reduce((sum, r) => sum + r.duration, 0) /
+      (1000 * 60 * 60);
     const nodeHours = (this.nodes.length + 1) * Math.max(testDurationHours, 1); // +1 for hub
-    return nodeHours * 0.06; // ~$0.06/hour average for our droplet sizes
+    return nodeHours * 0.071; // ~$0.071/hour average for our droplet sizes
   }
 
   async executeRemoteScript(ip, script) {
     const scriptPath = `/tmp/script-${Date.now()}.sh`;
     await fs.writeFile(scriptPath, script);
-    
+
     const sshCommand = `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@${ip} 'bash -s' < ${scriptPath}`;
     const { stdout, stderr } = await execAsync(sshCommand);
-    
+
     await fs.unlink(scriptPath); // cleanup
-    
-    if (stderr && !stderr.includes('Warning')) {
+
+    if (stderr && !stderr.includes("Warning")) {
       throw new Error(`SSH execution failed: ${stderr}`);
     }
-    
+
     return stdout;
   }
 
   async cleanup() {
-    console.log('\n🧹 Cleaning up infrastructure...');
-    
+    console.log("\n🧹 Cleaning up infrastructure...");
+
     // Delete all droplets
-    const allDroplets = [
-      { name: 'jitsi-hub' },
-      ...this.nodes
-    ];
-    
+    const allDroplets = [{ name: "jitsi-hub" }, ...this.nodes];
+
     for (const droplet of allDroplets) {
       try {
         await execAsync(`doctl compute droplet delete ${droplet.name} --force`);
         console.log(`   ✅ Deleted ${droplet.name}`);
       } catch (error) {
-        console.log(`   ⚠️  Failed to delete ${droplet.name}: ${error.message}`);
+        console.log(
+          `   ⚠️  Failed to delete ${droplet.name}: ${error.message}`
+        );
       }
     }
-    
-    console.log('✅ Cleanup complete');
+
+    console.log("✅ Cleanup complete");
   }
 
   sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 
 // Configuration and startup
 const config = {
-  jitsiUrl: process.env.JITSI_URL || 'https://meet.jit.si',
+  jitsiUrl: process.env.JITSI_URL || "https://meet.jit.si",
   maxParticipants: parseInt(process.env.MAX_PARTICIPANTS) || 1000,
   incrementStep: parseInt(process.env.INCREMENT_STEP) || 50,
   participantsPerNode: parseInt(process.env.PARTICIPANTS_PER_NODE) || 80,
-  autoCleanup: process.env.AUTO_CLEANUP !== 'false'
+  autoCleanup: process.env.AUTO_CLEANUP !== "false",
+  testsToRun:
+    process.env.TESTS_TO_RUN || "PeerConnectionStatusTest,PSNRTest,UDPTest",
 };
 
 // Validate required environment variables
 if (!process.env.DO_TOKEN) {
-  console.error('❌ DO_TOKEN environment variable is required');
+  console.error("❌ DO_TOKEN environment variable is required");
   process.exit(1);
 }
 
 if (!process.env.DO_SSH_KEY_ID) {
-  console.error('❌ DO_SSH_KEY_ID environment variable is required');
+  console.error("❌ DO_SSH_KEY_ID environment variable is required");
   process.exit(1);
 }
 
@@ -521,8 +561,8 @@ if (!process.env.DO_SSH_KEY_ID) {
 const orchestrator = new JitsiLoadTestOrchestrator(config);
 
 // Handle graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n🛑 Received interrupt signal...');
+process.on("SIGINT", async () => {
+  console.log("\n🛑 Received interrupt signal...");
   if (config.autoCleanup) {
     await orchestrator.cleanup();
   }
@@ -530,12 +570,13 @@ process.on('SIGINT', async () => {
 });
 
 // Start the complete test
-orchestrator.runCompleteTest()
+orchestrator
+  .runCompleteTest()
   .then(() => {
-    console.log('\n🎉 Load testing completed successfully!');
+    console.log("\n🎉 Load testing completed successfully!");
     process.exit(0);
   })
   .catch((error) => {
-    console.error('\n💀 Load testing failed:', error.message);
+    console.error("\n💀 Load testing failed:", error.message);
     process.exit(1);
   });
