@@ -83,6 +83,9 @@ cat > .env.example << 'EOF'
 # Digital Ocean Configuration
 DO_TOKEN=your_do_token_here
 DO_SSH_KEY_ID=your_ssh_key_id_here
+# Absolute path to the private SSH key corresponding to the public key used on Digital Ocean.
+# Example: /Users/yourname/.ssh/id_ed25519
+SSH_PRIVATE_KEY_PATH=
 
 # Test Configuration
 JITSI_URL=https://your-jitsi-instance.com

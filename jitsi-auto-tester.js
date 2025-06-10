@@ -12,6 +12,7 @@ class JitsiLoadTestOrchestrator {
       // Digital Ocean settings
       doToken: process.env.DO_TOKEN,
       sshKeyId: process.env.DO_SSH_KEY_ID,
+      sshPrivateKeyPath: process.env.SSH_PRIVATE_KEY_PATH,
       region: "nyc1",
 
       // Test settings
@@ -498,7 +499,11 @@ echo "EXIT_CODE: $?"
     const scriptPath = `/tmp/script-${Date.now()}.sh`;
     await fs.writeFile(scriptPath, script);
 
-    const sshCommand = `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@${ip} 'bash -s' < ${scriptPath}`;
+    const sshIdentityFlag = this.config.sshPrivateKeyPath
+      ? `-i ${this.config.sshPrivateKeyPath}`
+      : "";
+
+    const sshCommand = `ssh ${sshIdentityFlag} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@${ip} 'bash -s' < ${scriptPath}`;
     const { stdout, stderr } = await execAsync(sshCommand);
 
     await fs.unlink(scriptPath); // cleanup
@@ -541,6 +546,7 @@ const config = {
   maxParticipants: parseInt(process.env.MAX_PARTICIPANTS) || 1000,
   incrementStep: parseInt(process.env.INCREMENT_STEP) || 50,
   participantsPerNode: parseInt(process.env.PARTICIPANTS_PER_NODE) || 80,
+  sshPrivateKeyPath: process.env.SSH_PRIVATE_KEY_PATH,
   autoCleanup: process.env.AUTO_CLEANUP !== "false",
   testsToRun:
     process.env.TESTS_TO_RUN || "PeerConnectionStatusTest,PSNRTest,UDPTest",
@@ -554,6 +560,11 @@ if (!process.env.DO_TOKEN) {
 
 if (!process.env.DO_SSH_KEY_ID) {
   console.error("❌ DO_SSH_KEY_ID environment variable is required");
+  process.exit(1);
+}
+
+if (!process.env.SSH_PRIVATE_KEY_PATH) {
+  console.error("❌ SSH_PRIVATE_KEY_PATH environment variable is required");
   process.exit(1);
 }
 
