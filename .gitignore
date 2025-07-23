@@ -31,3 +31,6 @@ resources/psnr/test_sequences/
 .settings
 
 jitsi-load-test/
+node_modules
+
+.env
